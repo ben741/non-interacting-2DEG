@@ -31,7 +31,7 @@ from __future__ import division
 import numpy as np
 
 # some things are just more convenient without the np prefix...
-from numpy import exp, pi
+from numpy import exp, sqrt, pi
 
 # all times in ns
 # all masses in kg
@@ -46,6 +46,16 @@ m_e = 9.10938356e-31
 
 # GaAs constants
 m_star = 0.067 * m_e
+n_e = 3e15
+
+# dimensionless DOS to actual units of 1/(K m^2)
+nu0 = m_star/(pi * hbar**2) * k_b
+
+def E_fermi(n_e):
+    return n_e / nu0 # in K
+
+def v_fermi(n_e):
+    return sqrt(2*E_fermi(n_e) * k_b / m_star)
 
 def filling(B, n_e):
     """ Calculate the filling factor for a given B-field and electon density
@@ -109,6 +119,9 @@ def generate_DOS(eps, B, tau_q, LL_energies=None):
     at magnetic field B with quantum lifetime tau_q
     Implements equation 4 of Zhang et al. PRB 80, 045310 (2009)
 
+    The result is dimensionless and needs to be multiplied by
+    nu0 = m/(pi * hbar **2) * k_b to obtain the DOS in units of 1/(K m^2)
+
     >>> import numpy as np
     >>> generate_DOS(np.array([0.5, 1.2]), 1.0, 1e-12)
     array([ 0.25191318,  0.32785897])
@@ -138,6 +151,30 @@ def generate_DOS(eps, B, tau_q, LL_energies=None):
         return_value += exp(-(eps - eps_0)**2 / (2 * sigma2))
     return  prefactor * return_value
 
+def get_mu_at_T(B,T, eps, DOS, N = 2.95e15):
+    """ Find the chemical potential for a given density and temperature
+    
+    """
+    
+    mu = 0.1
+    mu_step = 100
+    N_calc = 0
+
+    #DOS = np.array([dens(ep, B) for ep in eps])
+    for i in range (100):
+        N_calc = np.trapz (fermi(eps, mu, T) * DOS, x = eps)
+        
+        #print mu, N_calc      
+        if abs(N - N_calc) < 0.00001 * N:
+            break
+        elif N > N_calc:
+            mu = mu + mu_step
+        elif N < N_calc:
+            mu = mu - mu_step
+        mu_step = mu_step/2.
+
+    return mu
+    
 
 def specific_heat(eps, DOS, T, mu=None):
     """ Numerically calculate specific heat of the 2DEG
@@ -145,14 +182,14 @@ def specific_heat(eps, DOS, T, mu=None):
     below T and approximating C = dU/dT
 
     Example: calculate the specific heat for a flat density of states
-    
+
     >>> import numpy as np
     >>> eps = np.linspace (0,100,100)
     >>> dens = np.ones(100)
     >>> print '%.5f'%specific_heat(eps, dens, 10, mu = 50)
     27.91817
     """
-    # generate high and low temperatures, which are +/- 5% from temperature we're interested in
+    # generate high and low temperatures, which are +/- 5% from T
     dT = T* 0.1
     T_h = T + 0.5 * dT
     T_l = T - 0.5 * dT
@@ -164,11 +201,34 @@ def specific_heat(eps, DOS, T, mu=None):
     else:
         mu_high = mu
         mu_low = mu
-   
-    dU = np.trapz((fermi(eps, mu_high, T_h)-fermi(eps, mu_low, T_l)) * (eps)* DOS, x = eps)
+
+    dU = np.trapz((fermi(eps, mu_high, T_h)-fermi(eps, mu_low, T_l))
+                  * (eps)* DOS, x=eps)
     # previously used (eps-mu_low) instead of (eps) in above
-    
-    return dU/dT
+
+    # commented factors would convert to J/(K m**2)
+    return dU/dT #  * nu0 * k_b
+
+
+def sigma_DC(B, tau_tr, v_f, nu0=nu0, q=q_e):
+    """ Calculate sigma_DC as defined in  Zhang et al. PRB 80, 045310 (2009)
+
+    >>> print '%.3e'%sigma_DC(1, 1e-12, v_f=v_fermi(3e15), nu0=nu0, q=q_e)
+    1.831e-04
+    """
+    return q **2 * nu0/k_b * v_f**2 / (2 * omega_c(B)**2 * tau_tr)
+
+
+def sigma_nl(B, tau_tr, eps, DOS, f_dist, v_f):
+    """ Calculate sigma_nl as defined in  Zhang et al. PRB 80, 045310 (2009)
+    This calculates the conductance in quasi-equilibrium if f_dist=fermi, but
+    can also calculate non-equilibrium transport if some other f_dist is given.
+
+    """
+    return np.trapz(sigma_DC(B, tau_tr, v_f, nu0) * DOS**2
+                    * -1 * deriv(f_dist, eps), x=eps)
+
+
 
 
 # run doctests when this file is executed as a script
