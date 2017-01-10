@@ -22,9 +22,11 @@ the same DOS that best matches the conductance, calculate other quantities of
 interest such as C or S_xx.
 
 TODO:
-- move specific heat code into this file
+- verify values of specific heat, E_f etc. using flat DOS
+- write function to generate eps appropriately based on T, E_f etc.
+- write simple calculation of E_f at 0 field 
 - move thermopower code into this file
-- move
+- move other calcs here
 """
 
 from __future__ import division
@@ -32,6 +34,8 @@ import numpy as np
 
 # some things are just more convenient without the np prefix...
 from numpy import exp, sqrt, pi
+
+
 
 # all times in ns
 # all masses in kg
@@ -98,8 +102,21 @@ def fermi(eps, mu, T):
     >>> print('%.5f'%fermi (0.6, 0.5, 0.1))
     0.26894
     """
-    return 1/(1 + np.exp((eps - mu)/(T)))
-
+    
+    # Zero temperature case handled separately since (eps-mu)/T is NaN, not +inf
+    # or -inf as required to generate step function
+    if T == 0:
+        return np.piecewise(eps, [eps < mu, eps == mu, eps > mu], [1, 0.5, 0])
+    
+    # suppress overflow warnings for this calculation. Numpy handles +inf
+    # and -inf gracefully in this calculation.
+    old_settings = np.seterr()
+    np.seterr(over = 'ignore')
+    result = 1/(1 + np.exp((eps - mu)/T))
+    np.seterr(**old_settings)
+    
+    return result
+    
 def deriv(y, x):
     """ Calculate numerical derivative without reducing array length by
     padding with zeros at the ends, which is fine if y is flat there.
@@ -131,7 +148,7 @@ def generate_DOS(eps, B, tau_q, LL_energies=None):
 
     # by default, take spinless Landau levels with gaps of E_c
     # I'm not sure about the added 0.5, which is not included in Zhang but is
-    # in other references.
+    # in other references such as Kobayakawa
     if LL_energies is None:
         LL_energies = E_c * np.arange(0.5, 1000, 1)
 
@@ -151,25 +168,30 @@ def generate_DOS(eps, B, tau_q, LL_energies=None):
         return_value += exp(-(eps - eps_0)**2 / (2 * sigma2))
     return  prefactor * return_value
 
-def get_mu_at_T(B,T, eps, DOS, N = 2.95e15):
+
+def get_mu_at_T(eps, reduced_DOS, T, n_e = 3e15):
     """ Find the chemical potential for a given density and temperature
     
+    Example: calculate mu, in K, at T = 1 mK at zero field for n_e = 3e15 m^-2  
+    >>> eps = np.linspace (0, 500, 10000)
+    >>> mu = get_mu_at_T(eps, np.ones(len(eps)), 1e-3, 3e15)
+    >>> print '%.3f'%mu    
+    124.390
     """
     
-    mu = 0.1
-    mu_step = 100
-    N_calc = 0
+    mu = np.amax(eps)/2
+    mu_step = np.amax(eps)/4
+    n_e_calc = 0
 
-    #DOS = np.array([dens(ep, B) for ep in eps])
-    for i in range (100):
-        N_calc = np.trapz (fermi(eps, mu, T) * DOS, x = eps)
-        
-        #print mu, N_calc      
-        if abs(N - N_calc) < 0.00001 * N:
+    DOS = nu0 * reduced_DOS
+    for i in range (50):
+        n_e_calc = np.trapz (fermi(eps, mu, T) * DOS, x = eps)
+    
+        if abs(n_e - n_e_calc) < 0.00001 * n_e:
             break
-        elif N > N_calc:
+        elif n_e > n_e_calc:
             mu = mu + mu_step
-        elif N < N_calc:
+        elif n_e < n_e_calc:
             mu = mu - mu_step
         mu_step = mu_step/2.
 
