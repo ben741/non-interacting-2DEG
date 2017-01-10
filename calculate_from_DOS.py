@@ -198,7 +198,7 @@ def get_mu_at_T(eps, reduced_DOS, T, n_e = 3e15):
     return mu
     
 
-def specific_heat(eps, DOS, T, mu=None):
+def specific_heat(eps, reduced_DOS, T, mu=None, n_e=3e15):
     """ Numerically calculate specific heat of the 2DEG
     works by calculating total energy U at temperatures slightly above and
     below T and approximating C = dU/dT
@@ -206,10 +206,13 @@ def specific_heat(eps, DOS, T, mu=None):
     Example: calculate the specific heat for a flat density of states
 
     >>> import numpy as np
-    >>> eps = np.linspace (0,100,100)
-    >>> dens = np.ones(100)
-    >>> print '%.5f'%specific_heat(eps, dens, 10, mu = 50)
-    27.91817
+    >>> eps = np.linspace (0,500,1000)
+    >>> dens = np.ones(len(eps))
+    >>> C = nu0 * k_b * specific_heat(eps, dens, 1)
+    >>> print 'Numerical: %.5e'%C
+    Numerical: 1.09548e-09
+    >>> print "Analytical: %.5e"%(pi * m_star * k_b **2 / (3 * hbar **2))
+    Analytical: 1.09548e-09
     """
     # generate high and low temperatures, which are +/- 5% from T
     dT = T* 0.1
@@ -218,14 +221,14 @@ def specific_heat(eps, DOS, T, mu=None):
 
     if mu is None:
         # these functions are yet to be moved into this file.
-        mu_high = get_mu_at_T(B, T_h, DOS)
-        mu_low = get_mu_at_T(B, T_l, DOS)
+        mu_high = get_mu_at_T(eps, reduced_DOS, T_h, n_e=n_e)
+        mu_low = get_mu_at_T(eps, reduced_DOS, T_l, n_e=n_e)
     else:
         mu_high = mu
         mu_low = mu
 
     dU = np.trapz((fermi(eps, mu_high, T_h)-fermi(eps, mu_low, T_l))
-                  * (eps)* DOS, x=eps)
+                  * (eps)* reduced_DOS, x=eps)
     # previously used (eps-mu_low) instead of (eps) in above
 
     # commented factors would convert to J/(K m**2)
