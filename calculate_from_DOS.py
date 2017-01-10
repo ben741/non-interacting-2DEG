@@ -22,9 +22,9 @@ the same DOS that best matches the conductance, calculate other quantities of
 interest such as C or S_xx.
 
 TODO:
-- verify values of specific heat, E_f etc. using flat DOS
+- verify conductance calculations (sigma_DC, sigma_nl)
 - write function to generate eps appropriately based on T, E_f etc.
-- write simple calculation of E_f at 0 field 
+- write simple calculation of E_f at 0 field
 - move thermopower code into this file
 - move other calcs here
 """
@@ -50,15 +50,16 @@ m_e = 9.10938356e-31
 
 # GaAs constants
 m_star = 0.067 * m_e
-n_e = 3e15
 
 # dimensionless DOS to actual units of 1/(K m^2)
 nu0 = m_star/(pi * hbar**2) * k_b
 
 def E_fermi(n_e):
+    """ Calculate the zero field Fermi energy """
     return n_e / nu0 # in K
 
 def v_fermi(n_e):
+    """ Calculate the zero fied Fermi velocity """
     return sqrt(2*E_fermi(n_e) * k_b / m_star)
 
 def filling(B, n_e):
@@ -102,21 +103,21 @@ def fermi(eps, mu, T):
     >>> print('%.5f'%fermi (0.6, 0.5, 0.1))
     0.26894
     """
-    
-    # Zero temperature case handled separately since (eps-mu)/T is NaN, not +inf
+
+    # T=0 case handled separately since (eps-mu)/T is NaN, not +inf
     # or -inf as required to generate step function
     if T == 0:
         return np.piecewise(eps, [eps < mu, eps == mu, eps > mu], [1, 0.5, 0])
-    
+
     # suppress overflow warnings for this calculation. Numpy handles +inf
     # and -inf gracefully in this calculation.
     old_settings = np.seterr()
-    np.seterr(over = 'ignore')
+    np.seterr(over='ignore')
     result = 1/(1 + np.exp((eps - mu)/T))
     np.seterr(**old_settings)
-    
+
     return result
-    
+
 def deriv(y, x):
     """ Calculate numerical derivative without reducing array length by
     padding with zeros at the ends, which is fine if y is flat there.
@@ -169,24 +170,24 @@ def generate_DOS(eps, B, tau_q, LL_energies=None):
     return  prefactor * return_value
 
 
-def get_mu_at_T(eps, reduced_DOS, T, n_e = 3e15):
+def get_mu_at_T(eps, reduced_DOS, T, n_e=3e15, precision=1e-15):
     """ Find the chemical potential for a given density and temperature
-    
-    Example: calculate mu, in K, at T = 1 mK at zero field for n_e = 3e15 m^-2  
+
+    Example: calculate mu, in K, at T = 1 mK at zero field for n_e = 3e15 m^-2
     >>> eps = np.linspace (0, 500, 10000)
     >>> mu = get_mu_at_T(eps, np.ones(len(eps)), 1e-3, 3e15)
-    >>> print '%.3f'%mu    
+    >>> print '%.3f'%mu
     124.390
     """
-    
+
     mu = np.amax(eps)/2
     mu_step = np.amax(eps)/4
     n_e_calc = 0
 
     DOS = nu0 * reduced_DOS
-    for i in range (50):
-        n_e_calc = np.trapz (fermi(eps, mu, T) * DOS, x = eps)
-    
+    while mu_step > mu * precision:
+        n_e_calc = np.trapz(fermi(eps, mu, T) * DOS, x=eps)
+
         if abs(n_e - n_e_calc) < 0.00001 * n_e:
             break
         elif n_e > n_e_calc:
@@ -196,7 +197,7 @@ def get_mu_at_T(eps, reduced_DOS, T, n_e = 3e15):
         mu_step = mu_step/2.
 
     return mu
-    
+
 
 def specific_heat(eps, reduced_DOS, T, mu=None, n_e=3e15):
     """ Numerically calculate specific heat of the 2DEG
@@ -229,16 +230,17 @@ def specific_heat(eps, reduced_DOS, T, mu=None, n_e=3e15):
 
     dU = np.trapz((fermi(eps, mu_high, T_h)-fermi(eps, mu_low, T_l))
                   * (eps)* reduced_DOS, x=eps)
-    # previously used (eps-mu_low) instead of (eps) in above
+    # previously used (eps-mu_low) instead of (eps) in above. Need to think
+    # about this a bit more.                 
 
     # commented factors would convert to J/(K m**2)
     return dU/dT #  * nu0 * k_b
 
 
-def sigma_DC(B, tau_tr, v_f, nu0=nu0, q=q_e):
+def sigma_DC(B, tau_tr, v_f, q=q_e):
     """ Calculate sigma_DC as defined in  Zhang et al. PRB 80, 045310 (2009)
 
-    >>> print '%.3e'%sigma_DC(1, 1e-12, v_f=v_fermi(3e15), nu0=nu0, q=q_e)
+    >>> print '%.3e'%sigma_DC(1, 1e-12, v_f=v_fermi(3e15))
     1.831e-04
     """
     return q **2 * nu0/k_b * v_f**2 / (2 * omega_c(B)**2 * tau_tr)
@@ -250,11 +252,8 @@ def sigma_nl(B, tau_tr, eps, reduced_DOS, f_dist, v_f):
     can also calculate non-equilibrium transport if some other f_dist is given.
 
     """
-    return np.trapz(sigma_DC(B, tau_tr, v_f, nu0) * reduced_DOS**2
+    return np.trapz(sigma_DC(B, tau_tr, v_f) * reduced_DOS**2
                     * -1 * deriv(f_dist, eps), x=eps)
-
-
-
 
 # run doctests when this file is executed as a script
 if __name__ == "__main__":
