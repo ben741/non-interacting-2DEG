@@ -241,13 +241,13 @@ def sigma_DC(B, tau_tr, v_f, nu0=nu0, q=q_e):
     return q **2 * nu0/k_b * v_f**2 / (2 * omega_c(B)**2 * tau_tr)
 
 
-def sigma_nl(B, tau_tr, eps, DOS, f_dist, v_f):
+def sigma_nl(B, tau_tr, eps, reduced_DOS, f_dist, v_f):
     """ Calculate sigma_nl as defined in  Zhang et al. PRB 80, 045310 (2009)
     This calculates the conductance in quasi-equilibrium if f_dist=fermi, but
     can also calculate non-equilibrium transport if some other f_dist is given.
 
     """
-    return np.trapz(sigma_DC(B, tau_tr, v_f, nu0) * DOS**2
+    return np.trapz(sigma_DC(B, tau_tr, v_f, nu0) * reduced_DOS**2
                     * -1 * deriv(f_dist, eps), x=eps)
 
 
