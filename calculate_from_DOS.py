@@ -27,10 +27,12 @@ TODO:
 - write simple calculation of E_f at 0 field
 - move thermopower code into this file
 - move other calcs here
+
 """
 
 from __future__ import division
 import numpy as np
+from scipy.integrate import simps
 
 # some things are just more convenient without the np prefix...
 from numpy import exp, sqrt, pi
@@ -186,7 +188,7 @@ def get_mu_at_T(eps, reduced_DOS, T, n_e=3e15, precision=1e-15):
 
     DOS = nu0 * reduced_DOS
     while mu_step > mu * precision:
-        n_e_calc = np.trapz(fermi(eps, mu, T) * DOS, x=eps)
+        n_e_calc = simps(fermi(eps, mu, T) * DOS, x=eps)
 
         if abs(n_e - n_e_calc) < 0.00001 * n_e:
             break
@@ -228,7 +230,7 @@ def specific_heat(eps, reduced_DOS, T, mu=None, n_e=3e15):
         mu_high = mu
         mu_low = mu
 
-    dU = np.trapz((fermi(eps, mu_high, T_h)-fermi(eps, mu_low, T_l))
+    dU = simps((fermi(eps, mu_high, T_h)-fermi(eps, mu_low, T_l))
                   * (eps)* reduced_DOS, x=eps)
     # previously used (eps-mu_low) instead of (eps) in above. Need to think
     # about this a bit more.                 
@@ -252,7 +254,7 @@ def sigma_nl(B, tau_tr, eps, reduced_DOS, f_dist, v_f):
     can also calculate non-equilibrium transport if some other f_dist is given.
 
     """
-    return np.trapz(sigma_DC(B, tau_tr, v_f) * reduced_DOS**2
+    return simps(sigma_DC(B, tau_tr, v_f) * reduced_DOS**2
                     * -1 * deriv(f_dist, eps), x=eps)
 
 # run doctests when this file is executed as a script
