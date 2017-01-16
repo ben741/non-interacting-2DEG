@@ -21,6 +21,17 @@ experiment choose the most appropriate model for the broadening. Then, using
 the same DOS that best matches the conductance, calculate other quantities of
 interest such as C or S_xx.
 
+Sections:
+A. Utility functions, like Fermi distribution, its derivative etc.
+B. Density of States generation
+C. Specific heat calculation
+D. Conductance & spectral diffusion
+
+Units:
+- Energies are in units of k_b T
+- lengths are in units of meters
+
+
 TODO:
 - verify conductance calculations (sigma_DC, sigma_nl)
 - write function to generate eps appropriately based on T, E_f etc.
@@ -56,12 +67,17 @@ m_star = 0.067 * m_e
 # dimensionless DOS to actual units of 1/(K m^2)
 nu0 = m_star/(pi * hbar**2) * k_b
 
+
+###############################################################################
+# A. General-purpose functions
+###############################################################################
+
 def E_fermi(n_e):
     """ Calculate the zero field Fermi energy """
     return n_e / nu0 # in K
 
 def v_fermi(n_e):
-    """ Calculate the zero fied Fermi velocity """
+    """ Calculate the zero field Fermi velocity """
     return sqrt(2*E_fermi(n_e) * k_b / m_star)
 
 def filling(B, n_e):
@@ -134,6 +150,38 @@ def deriv(y, x):
     answer[1:-1] = (y[2:] - y[:-2])/(x[2:] - x[:-2])
     return answer
 
+def get_mu_at_T(eps, reduced_DOS, T, n_e=3e15, precision=1e-15):
+    """ Find the chemical potential for a given density and temperature
+
+    Example: calculate mu, in K, at T = 1 mK at zero field for n_e = 3e15 m^-2
+    >>> eps = np.linspace (0, 500, 10000)
+    >>> mu = get_mu_at_T(eps, np.ones(len(eps)), 1e-3, 3e15)
+    >>> print '%.3f'%mu
+    124.390
+    """
+
+    mu = np.amax(eps)/2
+    mu_step = np.amax(eps)/4
+    n_e_calc = 0
+
+    DOS = nu0 * reduced_DOS
+    while mu_step > mu * precision:
+        n_e_calc = simps(fermi(eps, mu, T) * DOS, x=eps)
+
+        if abs(n_e - n_e_calc) < 0.00001 * n_e:
+            break
+        elif n_e > n_e_calc:
+            mu = mu + mu_step
+        elif n_e < n_e_calc:
+            mu = mu - mu_step
+        mu_step = mu_step/2.
+
+    return mu
+    
+###############################################################################
+# B. Calculation of the Density of States
+###############################################################################
+
 def generate_DOS(eps, B, tau_q, LL_energies=None):
     """ Calculate the density of states for non-interacting electrons
     at magnetic field B with quantum lifetime tau_q
@@ -142,6 +190,8 @@ def generate_DOS(eps, B, tau_q, LL_energies=None):
     The result is dimensionless and needs to be multiplied by
     nu0 = m/(pi * hbar **2) * k_b to obtain the DOS in units of 1/(K m^2)
 
+    This is not a very useful example. It just tests that there have been no
+    changes made to the function by calling it for a short, arbitrary array.
     >>> import numpy as np
     >>> generate_DOS(np.array([0.5, 1.2]), 1.0, 1e-12)
     array([ 0.25191318,  0.32785897])
@@ -172,35 +222,11 @@ def generate_DOS(eps, B, tau_q, LL_energies=None):
     return  prefactor * return_value
 
 
-def get_mu_at_T(eps, reduced_DOS, T, n_e=3e15, precision=1e-15):
-    """ Find the chemical potential for a given density and temperature
-
-    Example: calculate mu, in K, at T = 1 mK at zero field for n_e = 3e15 m^-2
-    >>> eps = np.linspace (0, 500, 10000)
-    >>> mu = get_mu_at_T(eps, np.ones(len(eps)), 1e-3, 3e15)
-    >>> print '%.3f'%mu
-    124.390
-    """
-
-    mu = np.amax(eps)/2
-    mu_step = np.amax(eps)/4
-    n_e_calc = 0
-
-    DOS = nu0 * reduced_DOS
-    while mu_step > mu * precision:
-        n_e_calc = simps(fermi(eps, mu, T) * DOS, x=eps)
-
-        if abs(n_e - n_e_calc) < 0.00001 * n_e:
-            break
-        elif n_e > n_e_calc:
-            mu = mu + mu_step
-        elif n_e < n_e_calc:
-            mu = mu - mu_step
-        mu_step = mu_step/2.
-
-    return mu
 
 
+###############################################################################
+# C. Specific heat
+###############################################################################
 def specific_heat(eps, reduced_DOS, T, mu=None, n_e=3e15):
     """ Numerically calculate specific heat of the 2DEG
     works by calculating total energy U at temperatures slightly above and
@@ -239,6 +265,10 @@ def specific_heat(eps, reduced_DOS, T, mu=None, n_e=3e15):
     return dU/dT #  * nu0 * k_b
 
 
+###############################################################################
+# D. Conductance and spectral diffusion
+###############################################################################
+
 def sigma_DC(B, tau_tr, v_f, q=q_e):
     """ Calculate sigma_DC as defined in  Zhang et al. PRB 80, 045310 (2009)
 
@@ -257,6 +287,10 @@ def sigma_nl(B, tau_tr, eps, reduced_DOS, f_dist, v_f):
     return simps(sigma_DC(B, tau_tr, v_f) * reduced_DOS**2
                     * -1 * deriv(f_dist, eps), x=eps)
 
+
+###############################################################################
+# Z. When the file is run directly....
+###############################################################################
 # run doctests when this file is executed as a script
 if __name__ == "__main__":
     import doctest
