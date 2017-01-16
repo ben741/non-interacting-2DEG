@@ -38,6 +38,7 @@ TODO:
 - write simple calculation of E_f at 0 field
 - move thermopower code into this file
 - move other calcs here
+- specific heat returns NaN instead of 0 at T = 0
 
 """
 
@@ -227,7 +228,7 @@ def generate_DOS(eps, B, tau_q, LL_energies=None):
 ###############################################################################
 # C. Specific heat
 ###############################################################################
-def specific_heat(eps, reduced_DOS, T, mu=None, n_e=3e15):
+def specific_heat(eps, reduced_DOS, T, mu=None, n_e=1e15, dT_frac=0.01):
     """ Numerically calculate specific heat of the 2DEG
     works by calculating total energy U at temperatures slightly above and
     below T and approximating C = dU/dT
@@ -237,14 +238,14 @@ def specific_heat(eps, reduced_DOS, T, mu=None, n_e=3e15):
     >>> import numpy as np
     >>> eps = np.linspace (0,500,1000)
     >>> dens = np.ones(len(eps))
-    >>> C = nu0 * k_b * specific_heat(eps, dens, 1)
+    >>> C = k_b * specific_heat(eps, dens, 1)
     >>> print 'Numerical: %.5e'%C
     Numerical: 1.09548e-09
     >>> print "Analytical: %.5e"%(pi * m_star * k_b **2 / (3 * hbar **2))
     Analytical: 1.09548e-09
     """
     # generate high and low temperatures, which are +/- 5% from T
-    dT = T* 0.1
+    dT = T * dT_frac
     T_h = T + 0.5 * dT
     T_l = T - 0.5 * dT
 
@@ -257,12 +258,12 @@ def specific_heat(eps, reduced_DOS, T, mu=None, n_e=3e15):
         mu_low = mu
 
     dU = simps((fermi(eps, mu_high, T_h)-fermi(eps, mu_low, T_l))
-                  * (eps)* reduced_DOS, x=eps)
+                  * (eps-mu_low)* reduced_DOS, x=eps)
     # previously used (eps-mu_low) instead of (eps) in above. Need to think
     # about this a bit more.                 
 
     # commented factors would convert to J/(K m**2)
-    return dU/dT #  * nu0 * k_b
+    return dU/dT * nu0 
 
 
 ###############################################################################
