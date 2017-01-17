@@ -151,21 +151,22 @@ def deriv(y, x):
     answer[1:-1] = (y[2:] - y[:-2])/(x[2:] - x[:-2])
     return answer
 
-def get_mu_at_T(eps, reduced_DOS, T, n_e=3e15, precision=1e-15):
+def get_mu_at_T(reduced_DOS, T, n_e=3e15, precision=1e-15):
     """ Find the chemical potential for a given density and temperature
 
     Example: calculate mu, in K, at T = 1 mK at zero field for n_e = 3e15 m^-2
     >>> eps = np.linspace (0, 500, 10000)
-    >>> mu = get_mu_at_T(eps, np.ones(len(eps)), 1e-3, 3e15)
+    >>> mu = get_mu_at_T([eps, np.ones(len(eps))], 1e-3, 3e15)
     >>> print '%.3f'%mu
     124.390
     """
-
+    eps, dens = reduced_DOS
+    
     mu = np.amax(eps)/2
     mu_step = np.amax(eps)/4
     n_e_calc = 0
 
-    DOS = nu0 * reduced_DOS
+    DOS = nu0 * dens
     while mu_step > mu * precision:
         n_e_calc = simps(fermi(eps, mu, T) * DOS, x=eps)
 
@@ -183,7 +184,22 @@ def get_mu_at_T(eps, reduced_DOS, T, n_e=3e15, precision=1e-15):
 # B. Calculation of the Density of States
 ###############################################################################
 
-def generate_DOS(eps, B, tau_q, LL_energies=None):
+def generate_eps(T_low, T_high, n_e, factor = 10):
+    """ Generate an array for epsilon which is centred around the Fermi 
+    energy and has sufficient range and resolution for specific heat 
+    calculations.
+    """
+    
+    E_f = E_fermi (n_e)
+    eps_min = E_f - factor * T_high
+    eps_max = E_f + factor * T_high
+    eps_step = T_low / factor
+    
+    return np.arange (eps_min, eps_max+eps_step, eps_step)
+
+
+def generate_DOS(B, tau_q, eps=None, LL_energies=None, T_low=0.1, T_high=1,
+                            n_e=3e15, factor=10):
     """ Calculate the density of states for non-interacting electrons
     at magnetic field B with quantum lifetime tau_q
     Implements equation 4 of Zhang et al. PRB 80, 045310 (2009)
@@ -194,8 +210,9 @@ def generate_DOS(eps, B, tau_q, LL_energies=None):
     This is not a very useful example. It just tests that there have been no
     changes made to the function by calling it for a short, arbitrary array.
     >>> import numpy as np
-    >>> generate_DOS(np.array([0.5, 1.2]), 1.0, 1e-12)
-    array([ 0.25191318,  0.32785897])
+    >>> eps = np.array([0.5, 1.2])
+    >>> generate_DOS(1.0, 1e-12, eps=eps)
+    [array([ 0.5,  1.2]), array([ 0.25191318,  0.32785897])]
     """
     # calculate cyclotron frequency, convert into energy in units of Kelvin
     E_c = omega_c(B) * hbar / k_b # in K
@@ -203,11 +220,21 @@ def generate_DOS(eps, B, tau_q, LL_energies=None):
     # by default, take spinless Landau levels with gaps of E_c
     # I'm not sure about the added 0.5, which is not included in Zhang but is
     # in other references such as Kobayakawa
-    if LL_energies is None:
-        LL_energies = E_c * np.arange(0.5, 1000, 1)
+
+    if eps is None:
+        eps = generate_eps(T_low, T_high, n_e, factor)
 
     # sigma squared for the Gaussian
     sigma2 = 0.5 * E_c * hbar / (np.pi * tau_q * k_b) # sigma squared
+
+
+    ### we could also intelligently choose Landau levels to sum over
+    ### let's commit first before modifying this...
+        
+    if LL_energies is None:
+        LL_energies = E_c * np.arange(0.5, 1000, 1)
+
+
 
     # the prefactor normalizes the height of the Gaussian, accounting for
     # the broadening given by sigma2
@@ -220,7 +247,7 @@ def generate_DOS(eps, B, tau_q, LL_energies=None):
     return_value = np.zeros(len(eps))
     for eps_0 in LL_energies:
         return_value += exp(-(eps - eps_0)**2 / (2 * sigma2))
-    return  prefactor * return_value
+    return  [eps, prefactor * return_value]
 
 
 
@@ -228,7 +255,7 @@ def generate_DOS(eps, B, tau_q, LL_energies=None):
 ###############################################################################
 # C. Specific heat
 ###############################################################################
-def specific_heat(eps, reduced_DOS, T, mu=None, n_e=1e15, dT_frac=0.01):
+def specific_heat(reduced_DOS, T, mu=None, n_e=1e15, dT_frac=0.01):
     """ Numerically calculate specific heat of the 2DEG
     works by calculating total energy U at temperatures slightly above and
     below T and approximating C = dU/dT
@@ -238,7 +265,7 @@ def specific_heat(eps, reduced_DOS, T, mu=None, n_e=1e15, dT_frac=0.01):
     >>> import numpy as np
     >>> eps = np.linspace (0,500,1000)
     >>> dens = np.ones(len(eps))
-    >>> C = k_b * specific_heat(eps, dens, 1)
+    >>> C = k_b * specific_heat([eps, dens], 1)
     >>> print 'Numerical: %.5e'%C
     Numerical: 1.09548e-09
     >>> print "Analytical: %.5e"%(pi * m_star * k_b **2 / (3 * hbar **2))
@@ -249,16 +276,20 @@ def specific_heat(eps, reduced_DOS, T, mu=None, n_e=1e15, dT_frac=0.01):
     T_h = T + 0.5 * dT
     T_l = T - 0.5 * dT
 
+    [eps, dens] = reduced_DOS
     if mu is None:
         # these functions are yet to be moved into this file.
-        mu_high = get_mu_at_T(eps, reduced_DOS, T_h, n_e=n_e)
-        mu_low = get_mu_at_T(eps, reduced_DOS, T_l, n_e=n_e)
+        mu_high = get_mu_at_T([eps, dens], T_h, n_e=n_e)
+        mu_low = get_mu_at_T([eps, dens], T_l, n_e=n_e)
     else:
         mu_high = mu
         mu_low = mu
 
     dU = simps((fermi(eps, mu_high, T_h)-fermi(eps, mu_low, T_l))
-                  * (eps-mu_low)* reduced_DOS, x=eps)
+                  * (eps-mu_low)* dens, x=eps)
+                  
+    #dU = np.trapz((fermi(eps, mu_high, T_h)-fermi(eps, mu_low, T_l))
+    #              * (eps-mu_low)* DOS, x = eps)              
     # previously used (eps-mu_low) instead of (eps) in above. Need to think
     # about this a bit more.                 
 
@@ -279,13 +310,14 @@ def sigma_DC(B, tau_tr, v_f, q=q_e):
     return q **2 * nu0/k_b * v_f**2 / (2 * omega_c(B)**2 * tau_tr)
 
 
-def sigma_nl(B, tau_tr, eps, reduced_DOS, f_dist, v_f):
+def sigma_nl(B, tau_tr, reduced_DOS, f_dist, v_f):
     """ Calculate sigma_nl as defined in  Zhang et al. PRB 80, 045310 (2009)
     This calculates the conductance in quasi-equilibrium if f_dist=fermi, but
     can also calculate non-equilibrium transport if some other f_dist is given.
 
     """
-    return simps(sigma_DC(B, tau_tr, v_f) * reduced_DOS**2
+    [eps, dens] = reduced_DOS
+    return simps(sigma_DC(B, tau_tr, v_f) * dens**2
                     * -1 * deriv(f_dist, eps), x=eps)
 
 
