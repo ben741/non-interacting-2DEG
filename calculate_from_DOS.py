@@ -224,16 +224,21 @@ def generate_DOS(B, tau_q, eps=None, LL_energies=None, T_low=0.1, T_high=1,
     if eps is None:
         eps = generate_eps(T_low, T_high, n_e, factor)
 
-    # sigma squared for the Gaussian
+    # precalculate sigma squared for the Gaussian
     sigma2 = 0.5 * E_c * hbar / (np.pi * tau_q * k_b) # sigma squared
-
+    sigma = sqrt(sigma2)
 
     ### we could also intelligently choose Landau levels to sum over
     ### let's commit first before modifying this...
         
     if LL_energies is None:
-        LL_energies = E_c * np.arange(0.5, 1000, 1)
-
+        ### choose LLs only in a range such that their broadening reaches
+        ### all the way to the fermi level.
+        E_min = max (np.amin (eps) - sigma * 6, E_c)
+        E_max = np.amax(eps)  + sigma * 6
+        LL_max = np.ceil(E_max/E_c)
+        LL_min = np.floor(E_min/E_c)
+        LL_energies = E_c * np.arange(LL_min, LL_max+1, 1)
 
 
     # the prefactor normalizes the height of the Gaussian, accounting for
