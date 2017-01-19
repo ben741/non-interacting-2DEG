@@ -211,9 +211,7 @@ def generate_eps(T_low, T_high, n_e, factor = 10):
     return np.arange (eps_min, eps_max+eps_step, eps_step)
 
 
-def generate_DOS(B, tau_q, eps=None, LL_energies=None, T_low=0.1, T_high=1,
-                            n_e=3e15, factor=10, tau_q_dep=lambda B:1,
-                            broadening='Gaussian'):
+def generate_DOS(B, tau_q, **kwargs):
     """ Calculate the density of states for non-interacting electrons
     at magnetic field B with quantum lifetime tau_q
     Used to implement; equation 4 of Zhang et al. PRB 80, 045310 (2009)
@@ -229,6 +227,17 @@ def generate_DOS(B, tau_q, eps=None, LL_energies=None, T_low=0.1, T_high=1,
     >>> generate_DOS(1.0, 1e-12, eps=eps)
     [array([ 0.5,  1.2]), array([ 0.00063729,  0.00110615])]
     """
+    
+    # Read in the keyword arguments
+    eps = kwargs.get('eps') # default to None
+    LL_energies = kwargs.get('LL_energies')
+    T_low = kwargs.get('T_low', 0.1)
+    T_high = kwargs.get('T_high', 1)
+    n_e = kwargs.get('n_e', 3e15)
+    factor = kwargs.get('factor', 10)
+    tau_q_dep = kwargs.get('tau_q_dep', lambda B:1) # not used yet!
+    broadening = kwargs.get('broadening', 'Gaussian')
+    
     # calculate cyclotron frequency, convert into energy in units of Kelvin
     E_c = omega_c(B) * hbar / k_b # in K
 
