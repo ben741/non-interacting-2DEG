@@ -45,7 +45,7 @@ TODO:
 from __future__ import division
 import numpy as np
 from scipy.integrate import simps
-
+import matplotlib.pyplot as plt
 # some things are just more convenient without the np prefix...
 from numpy import exp, sqrt, pi
 
@@ -151,6 +151,19 @@ def deriv(y, x):
     answer[1:-1] = (y[2:] - y[:-2])/(x[2:] - x[:-2])
     return answer
 
+def gauss(x, x0, gamma):
+    """ returns a gaussian function with integral = 1
+    """
+    sigma = gamma / sqrt(2.0)
+    
+    A = 1/ (sigma * sqrt(2*pi))
+    return (A * exp (-0.5 * (x-x0)**2/sigma**2))
+
+def lorentz(x, x0, gamma):
+    """ returns a Lorentzian function with integral = 1
+    """    
+    return (0.5/pi) * gamma / ((x-x0)**2 + 0.25 * gamma**2)
+    
 def get_mu_at_T(reduced_DOS, T, n_e=3e15, precision=1e-15):
     """ Find the chemical potential for a given density and temperature
 
@@ -199,10 +212,12 @@ def generate_eps(T_low, T_high, n_e, factor = 10):
 
 
 def generate_DOS(B, tau_q, eps=None, LL_energies=None, T_low=0.1, T_high=1,
-                            n_e=3e15, factor=10):
+                            n_e=3e15, factor=10, tau_q_dep=lambda B:1,
+                            broadening='Gaussian'):
     """ Calculate the density of states for non-interacting electrons
     at magnetic field B with quantum lifetime tau_q
-    Implements equation 4 of Zhang et al. PRB 80, 045310 (2009)
+    Used to implement; equation 4 of Zhang et al. PRB 80, 045310 (2009)
+    now more like Piot et. al. PRB 72 245325 (2005).
 
     The result is dimensionless and needs to be multiplied by
     nu0 = m/(pi * hbar **2) * k_b to obtain the DOS in units of 1/(K m^2)
@@ -212,11 +227,18 @@ def generate_DOS(B, tau_q, eps=None, LL_energies=None, T_low=0.1, T_high=1,
     >>> import numpy as np
     >>> eps = np.array([0.5, 1.2])
     >>> generate_DOS(1.0, 1e-12, eps=eps)
-    [array([ 0.5,  1.2]), array([ 0.25191318,  0.32785897])]
+    [array([ 0.5,  1.2]), array([ 0.00063729,  0.00110615])]
     """
     # calculate cyclotron frequency, convert into energy in units of Kelvin
     E_c = omega_c(B) * hbar / k_b # in K
 
+    if broadening == 'Gaussian':
+        broaden = lambda eps, eps_0, gamma: gauss(eps, eps_0, gamma)
+        eps_width = 6
+    elif broadening == 'Lorentzian':
+        broaden = lambda eps, eps_0, gamma: lorentz(eps, eps_0, gamma)
+        eps_width = 30
+        
     # by default, take spinless Landau levels with gaps of E_c
     # I'm not sure about the added 0.5, which is not included in Zhang but is
     # in other references such as Kobayakawa
@@ -225,25 +247,28 @@ def generate_DOS(B, tau_q, eps=None, LL_energies=None, T_low=0.1, T_high=1,
         eps = generate_eps(T_low, T_high, n_e, factor)
 
     # precalculate sigma squared for the Gaussian
-    sigma2 = 0.5 * E_c * hbar / (np.pi * tau_q * k_b) # sigma squared
-    sigma = sqrt(sigma2)
-
+    #sigma2 = 0.5 * E_c * hbar / (np.pi * tau_q * k_b) # sigma squared
+    #sigma = sqrt(sigma2)
+    gamma = 0.5 * hbar/(k_b * tau_q)
+    sigma = gamma/sqrt(2)
+    
     ### we could also intelligently choose Landau levels to sum over
     ### let's commit first before modifying this...
         
     if LL_energies is None:
-        ### choose LLs only in a range such that their broadening reaches
-        ### all the way to the fermi level.
-        E_min = max (np.amin (eps) - sigma * 6, E_c)
-        E_max = np.amax(eps)  + sigma * 6
+        # choose LLs only in a range such that their broadening reaches
+        # all the way to the fermi level.
+    
+        E_min = max (np.amin (eps) - gamma * eps_width, E_c)
+        E_max = np.amax(eps)  + gamma * eps_width
         LL_max = np.ceil(E_max/E_c)
         LL_min = np.floor(E_min/E_c)
         LL_energies = E_c * np.arange(LL_min, LL_max+1, 1)
-
+        
 
     # the prefactor normalizes the height of the Gaussian, accounting for
     # the broadening given by sigma2
-    prefactor = np.sqrt(omega_c(B) * tau_q)
+    #prefactor = np.sqrt(omega_c(B) * tau_q)
 
     # Sum over Gaussians centred at E_c *N. This could be done more
     # pythonically or more efficiently
@@ -251,8 +276,13 @@ def generate_DOS(B, tau_q, eps=None, LL_energies=None, T_low=0.1, T_high=1,
     # so that you can use spin-split LLs
     return_value = np.zeros(len(eps))
     for eps_0 in LL_energies:
-        return_value += exp(-(eps - eps_0)**2 / (2 * sigma2))
-    return  [eps, prefactor * return_value]
+        #return_value += exp(-(eps - eps_0)**2 / (2 * sigma**2))
+    
+        ## broaden should return a gaussian with area = 1. However, each 
+        ## gaussian accounts for an area 
+        return_value += E_c * broaden(eps, eps_0, sigma)
+    #return  [eps, prefactor * return_value]
+    return  [eps, return_value]
 
 
 
@@ -309,10 +339,11 @@ def specific_heat(reduced_DOS, T, mu=None, n_e=1e15, dT_frac=0.01):
 def sigma_DC(B, tau_tr, v_f, q=q_e):
     """ Calculate sigma_DC as defined in  Zhang et al. PRB 80, 045310 (2009)
 
-    >>> print '%.3e'%sigma_DC(1, 1e-12, v_f=v_fermi(3e15))
-    1.831e-04
+    >>> print '%.3e'%sigma_DC(1, 10e-12, v_f=v_fermi(3e15))
+    1.828e-05
     """
-    return q **2 * nu0/k_b * v_f**2 / (2 * omega_c(B)**2 * tau_tr)
+    return (q **2 * nu0/k_b * v_f**2 * tau_tr / 
+            (2 * (1 + omega_c(B)**2 * tau_tr**2)))
 
 
 def sigma_nl(B, tau_tr, reduced_DOS, f_dist, v_f):
