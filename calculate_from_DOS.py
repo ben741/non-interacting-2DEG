@@ -45,7 +45,6 @@ TODO:
 from __future__ import division
 import numpy as np
 from scipy.integrate import simps
-import matplotlib.pyplot as plt
 # some things are just more convenient without the np prefix...
 from numpy import exp, sqrt, pi
 
@@ -65,6 +64,7 @@ m_e = 9.10938356e-31
 # GaAs constants
 m_star = 0.067 * m_e
 
+mu_bohr = q_e * hbar / (2 * m_e)
 # dimensionless DOS to actual units of 1/(K m^2)
 nu0 = m_star/(pi * hbar**2) * k_b
 
@@ -113,6 +113,12 @@ def mag_length(B, q=q_e):
 
     return np.sqrt(hbar/(q * B))
 
+def spin_gap(B, g_ex):
+    """ Calculate the spin gap in Kelvin. Use g_ex = 0.44 to obtain 
+    The Zeeman gap.
+    """
+
+    return mu_bohr * g_ex * B / k_b
 
 def fermi(eps, mu, T):
     """ Calculate the Fermi distribution with chemical potential mu at
@@ -235,12 +241,15 @@ def generate_DOS(B, tau_q, **kwargs):
     T_high = kwargs.get('T_high', 1)
     n_e = kwargs.get('n_e', 3e15)
     factor = kwargs.get('factor', 10)
-    tau_q_dep = kwargs.get('tau_q_dep', lambda B:1) # not used yet!
+    tau_q_dep = kwargs.get('tau_q_dep', lambda B: 1) # not used yet!
     broadening = kwargs.get('broadening', 'Gaussian')
+    E_spin = kwargs.get('E_spin', lambda B: 0) # spin gap is zero
+    
     
     # calculate cyclotron frequency, convert into energy in units of Kelvin
     E_c = omega_c(B) * hbar / k_b # in K
 
+    
     if broadening == 'Gaussian':
         broaden = lambda eps, eps_0, gamma: gauss(eps, eps_0, gamma)
         eps_width = 6
@@ -270,9 +279,9 @@ def generate_DOS(B, tau_q, **kwargs):
     
         E_min = max (np.amin (eps) - gamma * eps_width, E_c)
         E_max = np.amax(eps)  + gamma * eps_width
-        LL_max = np.ceil(E_max/E_c)
-        LL_min = np.floor(E_min/E_c)
-        LL_energies = E_c * np.arange(LL_min, LL_max+1, 1)
+        LL_max = np.ceil(E_max/E_c - 0.5)
+        LL_min = np.floor(E_min/E_c - 0.5)
+        LL_energies = E_c * (np.arange(LL_min, LL_max+1, 1) + 0.5)
         
 
     # the prefactor normalizes the height of the Gaussian, accounting for
@@ -289,7 +298,10 @@ def generate_DOS(B, tau_q, **kwargs):
     
         ## broaden should return a gaussian with area = 1. However, each 
         ## gaussian accounts for an area 
-        return_value += E_c * broaden(eps, eps_0, sigma)
+        return_value += 0.5 * E_c * broaden(eps, eps_0 - E_spin(B)/2, sigma)
+        return_value += 0.5 * E_c * broaden(eps, eps_0 + E_spin(B)/2, sigma)
+        #print eps_0-E_spin(B), eps_0+E_spin(B)
+        
     #return  [eps, prefactor * return_value]
     return  [eps, return_value]
 
